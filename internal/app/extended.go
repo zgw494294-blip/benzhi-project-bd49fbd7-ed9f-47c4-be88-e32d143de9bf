@@ -24,9 +24,10 @@ type BatchList struct {
 }
 
 type listCursor struct {
-	Filter    string `json:"filter"`
-	Offset    int    `json:"offset"`
-	Signature string `json:"signature"`
+	Filter         string `json:"filter"`
+	UpdatedAtNanos int64  `json:"updatedAtNanos"`
+	ID             string `json:"id"`
+	Signature      string `json:"signature"`
 }
 
 func normalizedFilter(f BatchFilter) string {
@@ -35,35 +36,60 @@ func normalizedFilter(f BatchFilter) string {
 	return string(raw)
 }
 
-func cursorSignature(filter string, offset int) string {
+func cursorSignature(filter string, updatedAtNanos int64, id string) string {
 	return requestDigest(struct {
-		Scope, Filter string
-		Offset        int
-	}{"batch-list-v1", filter, offset})
+		Scope, Filter  string
+		UpdatedAtNanos int64
+		ID             string
+	}{"batch-list-v1", filter, updatedAtNanos, id})
 }
 
-func parseListCursor(raw, filter string) (int, error) {
+// parseListCursor decodes the opaque cursor and returns the sort key of the
+// last item emitted on the previous page. An empty cursor means start from the
+// newest batches. The sort order is UpdatedAt descending, then ID ascending, so
+// "after" the key means strictly later in that order.
+func parseListCursor(raw, filter string) (time.Time, string, error) {
 	if raw == "" {
-		return 0, nil
+		return time.Time{}, "", nil
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return 0, domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标格式无效"})
+		return time.Time{}, "", domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标格式无效"})
 	}
 	var c listCursor
-	if json.Unmarshal(decoded, &c) != nil || c.Offset < 0 || c.Signature != cursorSignature(c.Filter, c.Offset) {
-		return 0, domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标格式无效或已被篡改"})
+	if json.Unmarshal(decoded, &c) != nil || c.Signature != cursorSignature(c.Filter, c.UpdatedAtNanos, c.ID) {
+		return time.Time{}, "", domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标格式无效或已被篡改"})
 	}
 	if c.Filter != filter {
-		return 0, domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标与当前筛选条件不匹配"})
+		return time.Time{}, "", domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标与当前筛选条件不匹配"})
 	}
-	return c.Offset, nil
+	if c.UpdatedAtNanos < 0 {
+		return time.Time{}, "", domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标格式无效或已被篡改"})
+	}
+	updatedAt := time.Unix(0, c.UpdatedAtNanos).UTC()
+	return updatedAt, c.ID, nil
 }
 
-func makeListCursor(filter string, offset int) string {
-	c := listCursor{Filter: filter, Offset: offset, Signature: cursorSignature(filter, offset)}
+// makeListCursor encodes the sort key of the last item on the current page so
+// the next request can resume strictly after it without depending on a numeric
+// offset that shifts when newer batches are inserted ahead of it.
+func makeListCursor(filter string, updatedAt time.Time, id string) string {
+	c := listCursor{Filter: filter, UpdatedAtNanos: updatedAt.UnixNano(), ID: id, Signature: cursorSignature(filter, updatedAt.UnixNano(), id)}
 	raw, _ := json.Marshal(c)
 	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// afterCursor reports whether b sorts strictly after the page boundary key
+// (UpdatedAt descending, then ID ascending). A zero cursor key matches every
+// batch.
+func afterCursor(b *domain.Batch, updatedAt time.Time, id string) bool {
+	if updatedAt.IsZero() && id == "" {
+		return true
+	}
+	if !b.UpdatedAt.Equal(updatedAt) {
+		return b.UpdatedAt.Before(updatedAt)
+	}
+	return b.ID > id
 }
 
 func validStatus(v string) bool {
@@ -87,7 +113,7 @@ func (s *Service) ListBatches(ctx context.Context, f BatchFilter) (BatchList, er
 		return BatchList{}, domain.NewValidationError(domain.ValidationIssue{Field: "limit", Message: "分页大小必须在 1-100 之间"})
 	}
 	canonical := normalizedFilter(f)
-	offset, err := parseListCursor(strings.TrimSpace(f.Cursor), canonical)
+	cursorUpdatedAt, cursorID, err := parseListCursor(strings.TrimSpace(f.Cursor), canonical)
 	if err != nil {
 		return BatchList{}, err
 	}
@@ -111,14 +137,18 @@ func (s *Service) ListBatches(ctx context.Context, f BatchFilter) (BatchList, er
 		return filtered[i].UpdatedAt.After(filtered[j].UpdatedAt)
 	})
 	result := BatchList{Items: []BatchSummary{}, Total: len(filtered)}
-	if offset > len(filtered) {
-		return BatchList{}, domain.NewValidationError(domain.ValidationIssue{Field: "cursor", Message: "分页游标超出结果范围"})
+	start := 0
+	for start < len(filtered) {
+		if afterCursor(filtered[start], cursorUpdatedAt, cursorID) {
+			break
+		}
+		start++
 	}
-	end := offset + f.Limit
+	end := start + f.Limit
 	if end > len(filtered) {
 		end = len(filtered)
 	}
-	for _, b := range filtered[offset:end] {
+	for _, b := range filtered[start:end] {
 		if err = projectBatch(b); err != nil {
 			return BatchList{}, err
 		}
@@ -127,7 +157,8 @@ func (s *Service) ListBatches(ctx context.Context, f BatchFilter) (BatchList, er
 		result.Items = append(result.Items, summary)
 	}
 	if end < len(filtered) {
-		result.NextCursor = makeListCursor(canonical, end)
+		last := filtered[end-1]
+		result.NextCursor = makeListCursor(canonical, last.UpdatedAt, last.ID)
 	}
 	return result, nil
 }
