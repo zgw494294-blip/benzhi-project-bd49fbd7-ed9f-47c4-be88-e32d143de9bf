@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -60,7 +61,11 @@ func selfcheck(addr string) error {
 	defer s.Close()
 	h := httpui.New(app.New(s))
 	srv := &http.Server{Addr: addr, Handler: h.Routes()}
-	go srv.ListenAndServe()
+	ln, e := net.Listen("tcp", addr)
+	if e != nil {
+		return e
+	}
+	go srv.Serve(ln)
 	defer srv.Shutdown(context.Background())
 	time.Sleep(100 * time.Millisecond)
 	client := &http.Client{Timeout: 2 * time.Second}
