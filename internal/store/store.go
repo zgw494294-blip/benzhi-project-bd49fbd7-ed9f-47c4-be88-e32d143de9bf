@@ -4,6 +4,7 @@ import (
 	"aquaflush-release-workbench/internal/domain"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -138,6 +139,9 @@ func (s *Store) Get(ctx context.Context, id string) (*domain.Batch, error) {
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
+	if b == nil {
+		return nil, fmt.Errorf("%w: 批次 %s 的持久化记录为空", domain.ErrDataIntegrity, id)
+	}
 	out := cloneBatch(b)
 	out.RefreshDerived()
 	return out, nil
@@ -150,7 +154,10 @@ func (s *Store) List(ctx context.Context) ([]*domain.Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]*domain.Batch, 0, len(s.data.Batches))
-	for _, batch := range s.data.Batches {
+	for id, batch := range s.data.Batches {
+		if batch == nil {
+			return nil, fmt.Errorf("%w: 批次 %s 的持久化记录为空", domain.ErrDataIntegrity, id)
+		}
 		copy := cloneBatch(batch)
 		copy.RefreshDerived()
 		out = append(out, copy)
