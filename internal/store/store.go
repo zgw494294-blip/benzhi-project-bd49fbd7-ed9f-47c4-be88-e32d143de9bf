@@ -49,11 +49,13 @@ func (s *Store) persist(data fileData) error {
 }
 
 // 将候选状态写入磁盘并提交到内存状态。
+// 取消的保存请求不会被持久化：持久化前再次检查 ctx，若已取消则直接返回，
+// 既不写盘也不更新内存；若持久化成功，内存状态随之提交，避免与磁盘分叉。
 func (s *Store) commitCandidate(ctx context.Context, candidate fileData) error {
-	if err := s.persist(candidate); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := s.persist(candidate); err != nil {
 		return err
 	}
 	s.data = candidate
