@@ -47,7 +47,11 @@ func PrecheckPlan(batchID string, expected int, profile *domain.SegmentProfile, 
 	plan, issues := PreparePlan(profile, input)
 	plan.GeometryCheck = CheckGeometry(profile)
 	result := PlanPrecheck{BatchID: batchID, ExpectedVersion: expected, NormalizedPlan: plan, SamplingPoints: append([]string(nil), plan.SamplingPoints...), Warnings: []domain.ValidationIssue{}}
-	result.EstimatedExecutionVolumeM3 = rounded(plan.FlowRateM3H * plan.DurationMin / 60)
+	volume := plan.FlowRateM3H * plan.DurationMin / 60
+	if math.IsNaN(volume) || math.IsInf(volume, 0) {
+		volume = 0
+	}
+	result.EstimatedExecutionVolumeM3 = rounded(volume)
 	if profile != nil && profile.VolumeM3 > 0 {
 		result.ExchangeRatio = rounded(result.EstimatedExecutionVolumeM3 / profile.VolumeM3)
 		result.ChlorineMarginLowerMgL = rounded(plan.DisinfectantTarget - profile.TargetChlorineMin)

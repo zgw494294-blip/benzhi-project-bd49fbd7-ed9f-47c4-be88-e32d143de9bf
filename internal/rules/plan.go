@@ -18,6 +18,10 @@ func PreparePlan(profile *domain.SegmentProfile, plan domain.Plan) (domain.Plan,
 		issues = append(issues, domain.ValidationIssue{Field: "disinfectantTarget", Message: "消毒剂目标浓度必须位于管段目标余氯范围内"})
 	}
 	volume := plan.FlowRateM3H * plan.DurationMin / 60
+	if math.IsNaN(volume) || math.IsInf(volume, 0) {
+		issues = append(issues, domain.ValidationIssue{Field: "flowRateM3h", Message: "流量与时长乘积超出可表示范围，请使用合理的数值"})
+		return plan, issues
+	}
 	if plan.FlowRateM3H > 0 && plan.DurationMin > 0 && profile.VolumeM3 > 0 && volume < profile.VolumeM3 {
 		issues = append(issues, domain.ValidationIssue{Field: "flowRateM3h", Message: "计划流量与时长不足以完成一次换水"})
 	}

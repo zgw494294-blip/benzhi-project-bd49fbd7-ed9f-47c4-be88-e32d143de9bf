@@ -67,9 +67,15 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "响应序列化失败", "detail": err.Error()})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(payload)
+	_, _ = w.Write([]byte("\n"))
 }
 
 func writeError(w http.ResponseWriter, err error, fallback int) {
