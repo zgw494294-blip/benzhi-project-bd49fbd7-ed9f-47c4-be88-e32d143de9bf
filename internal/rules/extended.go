@@ -23,6 +23,21 @@ func CheckGeometry(p *domain.SegmentProfile) *domain.GeometryVolumeCheck {
 	if theoretical > 0 {
 		deviation = diff / theoretical * 100
 	}
+	// Guard against non-finite geometry derivations: finite JSON inputs such as
+	// extremely large diameter/length pairs can overflow the cylindrical volume
+	// computation to +Inf (and the deviation to NaN). Those values cannot be
+	// serialized and would silently corrupt the candidate batch via clone/ marshal
+	// round-trips. Treat such cases as an incomplete, out-of-tolerance geometry
+	// check with finite field values instead.
+	if math.IsInf(theoretical, 0) || math.IsNaN(theoretical) ||
+		math.IsInf(diff, 0) || math.IsNaN(diff) ||
+		math.IsInf(deviation, 0) || math.IsNaN(deviation) {
+		return &domain.GeometryVolumeCheck{
+			Complete: false, TheoreticalVolumeM3: 0, DeclaredVolumeM3: rounded(p.VolumeM3),
+			AbsoluteDifferenceM3: rounded(p.VolumeM3), DeviationPercent: rounded(GeometryTolerancePercent) + 1,
+			TolerancePercent: GeometryTolerancePercent, WithinTolerance: false,
+		}
+	}
 	return &domain.GeometryVolumeCheck{
 		Complete: true, TheoreticalVolumeM3: rounded(theoretical), DeclaredVolumeM3: rounded(p.VolumeM3),
 		AbsoluteDifferenceM3: rounded(diff), DeviationPercent: rounded(deviation),
