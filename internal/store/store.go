@@ -162,15 +162,36 @@ func (s *Store) Events(ctx context.Context, id string) ([]domain.AuditEvent, err
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	events := make(chan domain.AuditEvent)
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, event := range s.data.Events {
+			if event.BatchID == id {
+				events <- event
+			}
+		}
+	}()
+	defer func() {
+		close(events)
+		<-producerDone
+	}()
 	out := []domain.AuditEvent{}
-	for _, event := range s.data.Events {
-		if event.BatchID == id {
+	for {
+		select {
+		case event := <-events:
 			out = append(out, event)
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		case <-producerDone:
+			return out, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
-	return out, nil
 }
 
 func (s *Store) NextAuditSequence(ctx context.Context, id string) (int64, error) {
