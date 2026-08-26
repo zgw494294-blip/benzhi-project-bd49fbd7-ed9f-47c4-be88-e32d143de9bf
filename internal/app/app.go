@@ -11,12 +11,20 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
-type Service struct{ Store *store.Store }
+type Service struct {
+	Store *store.Store
 
-func New(s *store.Store) *Service { return &Service{Store: s} }
+	timelineMu    sync.RWMutex
+	timelineCache map[string][]byte
+}
+
+func New(s *store.Store) *Service {
+	return &Service{Store: s, timelineCache: map[string][]byte{}}
+}
 
 func requestDigest(v any) string {
 	raw, _ := json.Marshal(v)

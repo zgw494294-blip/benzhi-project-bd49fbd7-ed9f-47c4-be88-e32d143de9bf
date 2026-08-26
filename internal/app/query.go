@@ -4,6 +4,7 @@ import (
 	"aquaflush-release-workbench/internal/domain"
 	"aquaflush-release-workbench/internal/rules"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -137,6 +138,9 @@ func checklistFor(b *domain.Batch) ReviewChecklist {
 }
 
 func (s *Service) TimelineView(ctx context.Context, id string) (TimelineView, error) {
+	if cached, ok, err := s.cachedTimelineView(id); err != nil || ok {
+		return cached, err
+	}
 	events, err := s.Timeline(ctx, id)
 	if err != nil {
 		return TimelineView{}, err
@@ -151,7 +155,37 @@ func (s *Service) TimelineView(ctx context.Context, id string) (TimelineView, er
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Sequence < events[j].Sequence })
 	evidenceSnapshot := evidenceFor(b)
-	return TimelineView{Events: events, Summary: summary, Checklist: checklistFor(b), ReviewEvidence: ReviewEvidence{Snapshot: evidenceSnapshot, ReviewToken: reviewToken(evidenceSnapshot), GeneratedAt: time.Now().UTC()}}, nil
+	view := TimelineView{Events: events, Summary: summary, Checklist: checklistFor(b), ReviewEvidence: ReviewEvidence{Snapshot: evidenceSnapshot, ReviewToken: reviewToken(evidenceSnapshot), GeneratedAt: time.Now().UTC()}}
+	if err := s.rememberTimelineView(id, view); err != nil {
+		return TimelineView{}, err
+	}
+	return view, nil
+}
+
+func (s *Service) cachedTimelineView(id string) (TimelineView, bool, error) {
+	s.timelineMu.RLock()
+	raw, ok := s.timelineCache[id]
+	raw = append([]byte(nil), raw...)
+	s.timelineMu.RUnlock()
+	if !ok {
+		return TimelineView{}, false, nil
+	}
+	var view TimelineView
+	if err := json.Unmarshal(raw, &view); err != nil {
+		return TimelineView{}, false, fmt.Errorf("解析时间线缓存: %w", err)
+	}
+	return view, true, nil
+}
+
+func (s *Service) rememberTimelineView(id string, view TimelineView) error {
+	raw, err := json.Marshal(view)
+	if err != nil {
+		return fmt.Errorf("生成时间线缓存: %w", err)
+	}
+	s.timelineMu.Lock()
+	s.timelineCache[id] = append([]byte(nil), raw...)
+	s.timelineMu.Unlock()
+	return nil
 }
 
 func VerifyCertificate(b *domain.Batch) (bool, string) {
