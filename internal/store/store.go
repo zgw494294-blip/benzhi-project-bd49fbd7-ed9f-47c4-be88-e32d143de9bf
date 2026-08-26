@@ -58,7 +58,12 @@ func (s *Store) SaveDetailed(ctx context.Context, b *domain.Batch, action, actor
 		return nil, false, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.mu.Unlock()
+		}
+	}()
 	idemKey := ""
 	if key != "" {
 		idemKey = scope + ":" + key
@@ -98,6 +103,8 @@ func (s *Store) SaveDetailed(ctx context.Context, b *domain.Batch, action, actor
 		raw, _ := json.Marshal(saved)
 		candidate.Idempotency[idemKey] = idempotencyRecord{Digest: digest, Result: raw}
 	}
+	s.mu.Unlock()
+	locked = false
 	if err := s.persist(candidate); err != nil {
 		return nil, false, err
 	}
