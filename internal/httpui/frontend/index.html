@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>管段冲洗消毒放行工作台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header><h1>管段冲洗消毒放行工作台</h1><p>草稿审计、方案冻结、现场执行、水质闭环、复核签发与凭据核验</p></header>
+<main>
+  <section class="panel">
+    <h2>创建或保存草稿</h2>
+    <div class="grid">
+      <input id="segment" placeholder="管段编号">
+      <input id="source" placeholder="供水来源">
+      <input id="creator" placeholder="操作者">
+      <input id="start" placeholder="起点">
+      <input id="end" placeholder="终点">
+      <input id="material" placeholder="材质">
+	  <input id="diameter" type="number" step="0.01" placeholder="管径 mm（与长度成对）">
+	  <input id="length" type="number" step="0.01" placeholder="长度 m（与管径成对）">
+      <input id="volume" type="number" step="0.01" placeholder="容积 m³">
+      <input id="cmin" type="number" step="0.01" value="0.3" placeholder="余氯下限">
+      <input id="cmax" type="number" step="0.01" value="1.0" placeholder="余氯上限">
+    </div>
+    <button id="createButton">创建批次</button>
+    <button id="saveButton">保存当前草稿</button>
+    <span id="msg" class="muted"></span>
+  </section>
+  <section class="panel">
+    <h2>批次工作台</h2>
+	<div class="grid">
+	  <input id="filterSegment" placeholder="筛选管段编号">
+	  <input id="filterSource" placeholder="筛选供水来源">
+	  <select id="filterStatus"><option value="">全部状态</option><option value="draft">draft</option><option value="frozen">frozen</option><option value="executing">executing</option><option value="sampling">sampling</option><option value="remediation">remediation</option><option value="review">review</option><option value="released">released</option></select>
+	  <input id="filterCreator" placeholder="筛选创建人">
+	</div>
+	<div class="toolbar"><button id="searchButton">检索批次</button><button id="nextButton" disabled>下一页</button><span id="total" class="muted"></span></div>
+	<div class="table-wrap"><table><thead><tr><th>批次</th><th>管段</th><th>状态/环节</th><th>下一操作</th><th>待补点</th><th>开放整改</th><th>更新时间</th></tr></thead><tbody id="batchRows"></tbody></table></div>
+    <div class="toolbar"><input id="bid" placeholder="批次 ID"><button id="loadButton">加载详情</button><button id="summaryButton">复核摘要</button><button id="timelineButton">审计时间线</button><button id="verifyButton">核验凭据</button></div>
+    <p class="muted">详情会显示当前版本、下一期待轮次、采样覆盖和可继续状态。</p>
+    <pre id="out"></pre>
+  </section>
+  <section class="panel">
+    <h2>主流程操作</h2>
+    <p class="muted">选择现有批次操作，并填写严格 JSON 请求体。请求体中的 <code>expectedVersion</code> 使用详情返回的当前版本。</p>
+    <div class="toolbar">
+      <select id="operation">
+		<option value="freeze">方案预检/冻结</option><option value="rounds">登记轮次</option><option value="finish">结束执行</option>
+        <option value="samples">登记样本</option><option value="corrective">创建整改</option><option value="reinspect">整改复检</option>
+        <option value="review">复核决定</option><option value="release">签发凭据</option>
+      </select>
+      <button id="templateButton">载入示例</button><button id="submitButton">提交操作</button>
+    </div>
+    <textarea id="payload" rows="14" spellcheck="false"></textarea>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
