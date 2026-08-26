@@ -11,12 +11,20 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
-type Service struct{ Store *store.Store }
+type Service struct {
+	Store *store.Store
 
-func New(s *store.Store) *Service { return &Service{Store: s} }
+	cacheMu sync.RWMutex
+	cache   map[string]*domain.Batch
+}
+
+func New(s *store.Store) *Service {
+	return &Service{Store: s, cache: map[string]*domain.Batch{}}
+}
 
 func requestDigest(v any) string {
 	raw, _ := json.Marshal(v)
@@ -119,6 +127,15 @@ func draftChangedFields(b *domain.Batch, segment, source string, p domain.Segmen
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*domain.Batch, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.cacheMu.RLock()
+	cached, ok := s.cache[id]
+	s.cacheMu.RUnlock()
+	if ok {
+		return cached, nil
+	}
 	b, err := s.Store.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -126,6 +143,9 @@ func (s *Service) Get(ctx context.Context, id string) (*domain.Batch, error) {
 	if err = projectBatch(b); err != nil {
 		return nil, err
 	}
+	s.cacheMu.Lock()
+	s.cache[id] = b
+	s.cacheMu.Unlock()
 	return b, nil
 }
 
