@@ -48,6 +48,18 @@ func (s *Store) persist(data fileData) error {
 	return os.Rename(tmp, s.path)
 }
 
+// 将候选状态写入磁盘并提交到内存状态。
+func (s *Store) commitCandidate(ctx context.Context, candidate fileData) error {
+	if err := s.persist(candidate); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.data = candidate
+	return nil
+}
+
 func (s *Store) Save(ctx context.Context, b *domain.Batch, action, actor string) error {
 	_, _, err := s.SaveDetailed(ctx, b, action, actor, "状态变更", "", "", "")
 	return err
@@ -98,10 +110,9 @@ func (s *Store) SaveDetailed(ctx context.Context, b *domain.Batch, action, actor
 		raw, _ := json.Marshal(saved)
 		candidate.Idempotency[idemKey] = idempotencyRecord{Digest: digest, Result: raw}
 	}
-	if err := s.persist(candidate); err != nil {
+	if err := s.commitCandidate(ctx, candidate); err != nil {
 		return nil, false, err
 	}
-	s.data = candidate
 	return cloneBatch(saved), false, nil
 }
 
